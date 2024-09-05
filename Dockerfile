@@ -32,11 +32,83 @@ RUN apt update && apt install -y --no-install-recommends \
 RUN wget https://go.dev/dl/go${golang_version}.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go${golang_version}.linux-amd64.tar.gz
 
-WORKDIR /src
+RUN apt update
+RUN apt install -y --no-install-recommends wget
+RUN apt install -y --no-install-recommends cmake
+RUN apt install -y --no-install-recommends git
+RUN apt install -y --no-install-recommends patch
+RUN apt install -y --no-install-recommends python3
+RUN apt install -y --no-install-recommends libssl-dev
+RUN apt install -y --no-install-recommends lzma-dev
+RUN apt install -y --no-install-recommends libxml2-dev
+RUN apt install -y --no-install-recommends xz-utils
+RUN apt install -y --no-install-recommends bzip2
+RUN apt install -y --no-install-recommends cpio
+RUN apt install -y --no-install-recommends libbz2-dev
+RUN apt install -y --no-install-recommends zlib1g-dev
 
+########################################
+# Set up environment variables for osxcross
+ENV OSX_VERSION=12.3
+ENV OSX_SDK_VERSION=12.3
+ENV OSX_TARGET="x86_64-apple-darwin21"
+
+# Install osxcross
+WORKDIR /osxcross
+RUN git clone https://github.com/tpoechtrager/osxcross.git .
+COPY tarballs tarballs
+
+ENV UNATTENDED=1
+ENV TARGET_DIR=/usr/local/osxcross
+RUN ./build.sh
+
+# Export osxcross environment variables
+ENV PATH="/usr/local/osxcross/bin:$PATH"
+ENV CC=o64-clang
+ENV CXX=o64-clang++
+
+# Configure Go environment variables for Cgo cross-compilation
+ENV GOOS=darwin
+ENV GOARCH=amd64
 ENV CGO_ENABLED=1
+ENV CC=o64-clang
+ENV CXX=o64-clang++
+#######################################
 
-ARG BUILDPLATFORM
+#######################################
+WORKDIR /
+
+ARG libusb_version=467b6a8896daea3d104958bf0887312c5d14d150
+ENV libusb_version=${libusb_version}
+
+RUN apt install -y --no-install-recommends autoconf
+RUN apt install -y --no-install-recommends automake
+RUN apt install -y --no-install-recommends libtool
+
+RUN git clone https://github.com/libusb/libusb \
+    && cd libusb \
+    && git checkout $libusb_version \
+    && ./bootstrap.sh \
+    #&& ./configure --host=x86_64-apple-darwin --prefix=/osxcross/target/macports/pkgs/usr \
+    # Static link attempt
+    && ./configure --host=x86_64-apple-darwin --disable-shared --prefix=/osxcross/target/macports/pkgs/usr \
+    && make \
+    && make install
+#RUN ranlib /osxcross/target/macports/pkgs/usr/lib/libusb-1.0.a
+#RUN o64-ranlib /osxcross/target/macports/pkgs/usr/lib/libusb-1.0.a
+RUN /usr/local/osxcross/bin/x86_64-apple-darwin23.5-ranlib /osxcross/target/macports/pkgs/usr/lib/libusb-1.0.a
+#RUN ar -t /osxcross/target/macports/pkgs/usr/lib/libusb-1.0.a
+#
+ENV CGO_CFLAGS="-I/osxcross/target/macports/pkgs/usr/include/libusb-1.0"
+#ENV CGO_LDFLAGS="-L/osxcross/target/macports/pkgs/usr/lib"
+# Static link attempt
+#ENV CGO_LDFLAGS="-L/osxcross/target/macports/pkgs/usr/lib -lusb-1.0 -static"
+#ENV CGO_LDFLAGS="-L/osxcross/target/macports/pkgs/usr/lib -lusb-1.0"
+ENV CGO_LDFLAGS="-L/osxcross/target/macports/pkgs/usr/lib -lusb-1.0 -framework CoreFoundation -framework IOKit -framework Security"
+ENV OSXCROSS_NO_INCLUDE_PATH_WARNINGS=1
+#######################################
+
+WORKDIR /src
 
 COPY . .
 
